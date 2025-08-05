@@ -38,7 +38,7 @@ class BMS(BaseBMS):
     @staticmethod
     def matcher_dict_list() -> list[AdvertisementPattern]:
         """Provide BluetoothMatcher definition."""
-        return [{"local_name": "SuperB_Epsilon", "connectable": True}]
+        return [{"local_name": "Epsilon 150 - *", "connectable": True}]
 
     @staticmethod
     def device_info() -> dict[str, str]:
