@@ -18,7 +18,7 @@ BMS_TYPES: Final[list[str]] = [
     "ecoworthy_bms",
     "ective_bms",
     "ej_bms",
-    "epsilon_150_bms"
+    "epsilon_150_bms",
     "jbd_bms",
     "jikong_bms",
     "neey_bms",  # active balancer
