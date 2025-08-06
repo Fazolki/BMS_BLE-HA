@@ -11,21 +11,18 @@ from .basebms import AdvertisementPattern, BaseBMS, BMSsample, BMSvalue
 
 
 class BMS(BaseBMS):
-    """Super B Epsilon BMS implementation."""
+    """Super B Epsilon BMS implementation using passive notifications."""
 
-    _HEAD: Final[bytes] = b"\xA5"  # Placeholder, adjust based on actual
-    _TAIL: Final[bytes] = b"\x5A"  # Placeholder, adjust based on actual
-    _RDCMD: Final[bytes] = b"\x01"  # Placeholder read command
-    _DEF_LEN: Final[int] = 20       # Expected BLE frame length
+    _DEF_LEN: Final[int] = 24  # Notification packet length
 
     # Field definitions: (field name, command ID, offset, length, signed, transform function)
     _FIELDS: Final[list[tuple[BMSvalue, int, int, int, bool, Callable[[int], Any]]]] = [
-        ("battery_level", 0x01, 3, 1, False, lambda x: x),
-        ("voltage",        0x01, 4, 2, False, lambda x: x / 100),     # e.g., 1320 -> 13.20V
-        ("current",        0x01, 6, 2, True,  lambda x: x / 100),     # signed: discharging/charging
-        ("temperature",    0x01, 8, 2, True,  lambda x: x / 10),      # 273 -> 27.3°C
-        ("cycles",         0x01, 10, 2, False, lambda x: x),
-        ("cycle_capacity", 0x01, 12, 2, False, lambda x: x),          # e.g., Wh or Ah
+        ("packet_type",       0x01, 0, 1,  False, lambda x: x),               # uint8
+        ("current",           0x01, 6, 4,  True,  lambda x: x),               # int32 (milliamps)
+        ("voltage",           0x01, 10, 2, False, lambda x: x / 1000),        # uint16 (millivolts to volts)
+        ("cycle_count",       0x01, 14, 1, False, lambda x: x),               # uint8
+        ("state_of_charge",   0x01, 15, 1, False, lambda x: x),               # uint8 (0–100%)
+        ("problem_code",      0x01, 16, 8, False, lambda x: x),               # uint64
     ]
 
     _CMDS: Final[set[int]] = {field[1] for field in _FIELDS}
@@ -48,17 +45,17 @@ class BMS(BaseBMS):
     @staticmethod
     def uuid_services() -> list[str]:
         """Return list of 128-bit UUIDs of services required by BMS."""
-        return [normalize_uuid_str("0000ff00-0000-1000-8000-00805f9b34fb")]  # Example
+        return [normalize_uuid_str("e0fef452-9d2b-4005-a1e3-69fe1102b436")]
 
     @staticmethod
     def uuid_rx() -> str:
-        """Return 16-bit UUID of characteristic that provides notification/read property."""
-        return "0000ff01-0000-1000-8000-00805f9b34fb"
+        """Return UUID of characteristic that provides notification."""
+        return "e0fef453-9d2b-4005-a1e3-69fe1102b436"
 
     @staticmethod
     def uuid_tx() -> str:
-        """Return 16-bit UUID of characteristic that provides write property."""
-        return "0000ff02-0000-1000-8000-00805f9b34fb"
+        """Return UUID of characteristic that provides write (not used)."""
+        return "e0fef454-9d2b-4005-a1e3-69fe1102b436"
 
     @staticmethod
     def _calc_values() -> frozenset[BMSvalue]:
@@ -75,15 +72,7 @@ class BMS(BaseBMS):
             self._log.debug("Incorrect frame length.")
             return
 
-        if not data.startswith(self._HEAD):
-            self._log.debug("Incorrect SOF.")
-            return
-
-        if not data.endswith(self._TAIL):
-            self._log.debug("Incorrect EOF.")
-            return
-
-        cmd_id = data[2]
+        cmd_id = data[0]
         self._data_final[cmd_id] = data.copy()
         self._data_event.set()
 
@@ -101,17 +90,12 @@ class BMS(BaseBMS):
 
         return result
 
-    @staticmethod
-    def _cmd(addr: int) -> bytes:
-        """Build a command frame for the Super B protocol."""
-        return BMS._HEAD + BMS._RDCMD + addr.to_bytes(1, "big") + BMS._TAIL
-
     async def _async_update(self) -> BMSsample:
-        """Fetch and decode current BMS data."""
+        """Wait for latest notification and decode BMS data."""
         self._data_final.clear()
 
         for cmd in self._CMDS:
-            await self._await_reply(self._cmd(cmd))
+            await self._await_reply()  # No command sent, just wait for notification
 
         result: BMSsample = self._decode_data(self._data_final)
 
